@@ -1,8 +1,20 @@
 # Run Two Claude Desktop Accounts on Windows
 
-A practical Windows workaround for running **two separate Claude Desktop accounts simultaneously** on the same PC.
+A simple workaround for running **two separate Claude Desktop accounts simultaneously** on the same Windows PC.
 
-Claude Desktop is designed around a single Windows user environment, which makes running two accounts at the same time difficult. This project uses a **separate Windows user account** and a **local synchronized copy of the Claude Desktop application** to run a second instance.
+The idea is simple:
+
+```text
+Windows User 1
+    └── Claude Desktop
+        └── Claude Account 1
+
+Windows User 2
+    └── Claude Desktop copy
+        └── Claude Account 2
+```
+
+Instead of trying to run two accounts under the same Windows user, we create a second Windows user, make a copy of Claude Desktop, and run that copy using the second Windows user.
 
 > **Status:** Tested workaround
 > **Platform:** Windows 10 / Windows 11
@@ -10,105 +22,124 @@ Claude Desktop is designed around a single Windows user environment, which makes
 
 ---
 
-## Why?
-
-If you need to work with two different Claude accounts, the normal approaches have some limitations.
-
-For example:
-
-* Running Claude Desktop normally only gives you one account.
-* `runas` cannot directly launch the MSIX-installed Claude Desktop application.
-* The Claude executable inside `WindowsApps` cannot normally be launched directly by another Windows user.
-* Registering the MSIX package for another Windows user does not necessarily allow the application to be activated through `runas`.
-
-This repository provides a workaround based on a second Windows user and a separate application copy.
-
----
-
 ## How It Works
 
-The setup uses:
+Claude Desktop normally keeps its account/session information within the Windows user environment.
 
-```text
-Windows User 1
-    │
-    └── Claude Desktop
-        └── Account 1
+This workaround uses:
 
+1. A second Windows user.
+2. A copy of the Claude Desktop application.
+3. `runas` to launch the copied application under the second Windows user.
 
-Windows User 2
-    │
-    └── Claude Desktop copy
-        └── Account 2
-```
-
-The second Claude Desktop application is copied from the installed MSIX package into:
+The second copy is stored in:
 
 ```text
 C:\Tools\Claude2
 ```
 
-The application is then launched under a separate Windows user using:
+and is launched using:
 
 ```text
 runas
 ```
 
-Each Windows user maintains its own application/session environment, allowing two Claude accounts to be used at the same time.
+This allows the two Claude instances to run under separate Windows user environments.
 
 ---
 
-## Features
+# Installation
 
-* Run two Claude Desktop accounts simultaneously
-* Use separate Windows user accounts
-* No need to modify Claude Desktop source files
-* Automatically synchronize the copied Claude application when a new version is detected
-* Launch the second instance with a desktop shortcut
-* Works with the MSIX version of Claude Desktop
+## 1. Create a Second Windows User
 
----
-
-## Requirements
-
-* Windows 10 or Windows 11
-* Claude Desktop installed normally
-* Administrator access to create the second Windows user
-* A separate Claude account for the second instance
-
----
-
-## Installation
-
-### 1. Create a second Windows user
-
-Open **Command Prompt as Administrator** and run:
-
-```bat
-net user ClaudeAlt * /add
-```
-
-Windows will ask you to choose a password.
-
-You can use another username if you prefer. If you do, change `ALT_USER` in the batch file accordingly.
-
----
-
-### 2. Sign in to the new Windows account once
-
-Sign in to Windows using:
+Open:
 
 ```text
-ClaudeAlt
+Settings
+→ Accounts
+→ Other users
+→ Add account
 ```
+
+Then select:
+
+```text
+I don't have this person's sign-in information
+```
+
+and then:
+
+```text
+Add a user without a Microsoft account
+```
+
+Create a user such as:
+
+```text
+UserClaude
+```
+
+Set a password for this account.
+
+**Remember the password.**
+
+---
+
+## 2. Sign in to the New Windows User Once
+
+Sign out from your current Windows account and sign in using:
+
+```text
+UserClaude
+```
+
+Wait until the Windows desktop has completely loaded.
 
 You only need to do this once so Windows creates the user's profile.
 
-After the profile is created, sign out and return to your normal Windows account.
+After that, sign out and return to your normal Windows account.
 
 ---
 
-### 3. Create the Claude launcher
+## 3. Close Claude Desktop
+
+Before copying the application, completely close Claude Desktop.
+
+Right-click the Claude icon near the Windows clock and select:
+
+```text
+Quit
+```
+
+Make sure Claude Desktop is no longer running.
+
+---
+
+## 4. Copy Claude Desktop
+
+Open **PowerShell as Administrator**.
+
+Run:
+
+```powershell
+$p = Get-AppxPackage Claude; robocopy "$($p.InstallLocation)\app" "C:\Tools\Claude2" /E
+```
+
+This copies the Claude Desktop application files to:
+
+```text
+C:\Tools\Claude2
+```
+
+After the command finishes, you should have:
+
+```text
+C:\Tools\Claude2\claude.exe
+```
+
+---
+
+## 5. Create the Launcher
 
 Create a file named:
 
@@ -116,28 +147,35 @@ Create a file named:
 Claude2.bat
 ```
 
-and put the following content inside it:
+You can put it on your Desktop for easy access.
+
+Use the following content:
 
 ```bat
 @echo off
 
-set "ALT_USER=ClaudeAlt"
-set "DEST=C:\Tools\Claude2"
+REM ------------------------------------------------------------
+REM Run the second Claude Desktop instance using the
+REM secondary Windows user.
+REM
+REM Change "UserClaude" if you used a different Windows
+REM username.
+REM ------------------------------------------------------------
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$p = Get-AppxPackage Claude; if (-not $p) { Write-Host 'Claude not installed'; exit 1 };" ^
-  "$v = $p.Version.ToString(); $f = '%DEST%\.version';" ^
-  "if (-not (Test-Path $f) -or (Get-Content $f) -ne $v) {" ^
-  "  Write-Host \"Syncing Claude $v ...\";" ^
-  "  robocopy (Join-Path $p.InstallLocation 'app') '%DEST%' /MIR /XF .version /NFL /NDL /NJH /NJS | Out-Null;" ^
-  "  Set-Content $f $v }"
-
-runas /user:%ALT_USER% /savecred "%DEST%\claude.exe"
+runas /user:UserClaude /savecred "C:\Tools\Claude2\claude.exe"
 ```
+
+If you used a different Windows username, change:
+
+```bat
+UserClaude
+```
+
+to your username.
 
 ---
 
-### 4. Run the launcher
+## 6. Run Claude for the Second Account
 
 Double-click:
 
@@ -145,31 +183,72 @@ Double-click:
 Claude2.bat
 ```
 
-The first time Windows will ask for the password of:
+The first time, Windows will ask for the password of:
 
 ```text
-ClaudeAlt
+UserClaude
 ```
 
-After authentication, Claude Desktop will start under the second Windows user.
+Enter the password and press Enter.
 
-Sign in to your **second Claude account**.
+> Nothing will appear while typing the password. This is normal.
+
+Claude Desktop should now start under the second Windows user.
+
+You can now sign in using your **second Claude account**.
 
 ---
 
-## Creating a Desktop Shortcut
+## Running Both Accounts
 
-For easier access:
-
-1. Right-click `Claude2.bat`
-2. Select **Send to → Desktop (create shortcut)**
-3. Right-click the shortcut
-4. Open **Properties**
-5. Set:
+After setup, you should be able to use:
 
 ```text
-Run: Minimized
+Claude Desktop
+    → Account 1
+
+Claude Desktop - Second Instance
+    → Account 2
 ```
+
+Both instances can be open at the same time.
+
+---
+
+# Updating Claude Desktop
+
+The copied application does **not automatically update** when the main Claude Desktop installation is updated.
+
+If Claude Desktop receives an update:
+
+1. Close the second Claude instance.
+2. Close the main Claude instance.
+3. Open **PowerShell as Administrator**.
+4. Run the copy command again:
+
+```powershell
+$p = Get-AppxPackage Claude; robocopy "$($p.InstallLocation)\app" "C:\Tools\Claude2" /E
+```
+
+This updates the files in:
+
+```text
+C:\Tools\Claude2
+```
+
+After that, run `Claude2.bat` again.
+
+---
+
+# Creating a Desktop Shortcut
+
+For easier access, you can create a shortcut to:
+
+```text
+Claude2.bat
+```
+
+Then you can simply double-click the shortcut whenever you want to open the second Claude account.
 
 You can also change the shortcut icon to the Claude executable:
 
@@ -177,95 +256,9 @@ You can also change the shortcut icon to the Claude executable:
 C:\Tools\Claude2\claude.exe
 ```
 
-This gives you a dedicated shortcut for launching the second Claude account.
-
 ---
 
-## Updating Claude Desktop
-
-The copied application does not update itself automatically.
-
-The batch file checks the installed Claude Desktop version every time it starts.
-
-If a new version is detected, it synchronizes the application files:
-
-```text
-Installed Claude
-       ↓
-C:\Tools\Claude2
-```
-
-The synchronization is performed using:
-
-```bat
-robocopy /MIR
-```
-
-Therefore, `C:\Tools\Claude2` should be treated as a dedicated directory for this Claude copy.
-
-### Important
-
-Before updating the copied files, make sure the second Claude instance is closed.
-
-If Claude is still running from `C:\Tools\Claude2`, the synchronization may fail for files that are currently in use.
-
----
-
-## Login Issues
-
-Depending on the version of Claude Desktop and Windows, the authentication process may open the login link in your default browser.
-
-If the second Claude instance does not complete the login correctly:
-
-1. Close the first Claude Desktop instance temporarily.
-2. Start `Claude2.bat`.
-3. Complete the login for the second account.
-4. After the second account is authenticated, start your first Claude instance again.
-
-The exact authentication behavior may change with future Claude Desktop releases.
-
----
-
-## Why Not Just Use `runas`?
-
-Claude Desktop is distributed as an MSIX application.
-
-This means that simply doing something like:
-
-```bat
-runas /user:ClaudeAlt "Claude.exe"
-```
-
-does not work reliably with the normal MSIX installation.
-
-The executable is installed under a protected WindowsApps directory and application activation is handled through Windows' packaged-app infrastructure.
-
-The workaround avoids this limitation by copying the application files to a normal directory:
-
-```text
-C:\Tools\Claude2
-```
-
-and then launching that copy under the second Windows user.
-
----
-
-## Limitations
-
-This is a practical workaround, not an official Claude Desktop feature.
-
-Potential limitations include:
-
-* Claude Desktop updates may change the application structure.
-* The copied application does not update itself.
-* The batch file needs to synchronize the application after updates.
-* Authentication behavior may change in future versions.
-* The workaround may stop working if Anthropic changes how Claude Desktop is packaged or launched.
-* Windows security policies may behave differently on different systems.
-
----
-
-## Security Considerations
+# Security Note
 
 The launcher uses:
 
@@ -273,81 +266,114 @@ The launcher uses:
 runas /savecred
 ```
 
-This allows Windows to remember the credentials for the secondary account so you don't have to enter the password every time.
+`/savecred` tells Windows to remember the credentials after the first successful login.
 
-Understand the security implications before using `/savecred`.
+This means you normally won't need to enter the `UserClaude` password every time you run `Claude2.bat`.
 
-For better isolation, use a dedicated Windows user with only the permissions you actually need.
+Be aware that saved Windows credentials have security implications.
 
-Do **not** put passwords, Claude session data, authentication tokens, cookies, or other credentials in this repository.
+Use this only on a computer where you understand and accept the risks.
 
 ---
 
-## Removing the Setup
+# Troubleshooting
 
-If you want to completely remove the second Claude environment:
+## `claude.exe` was not found
 
-### Delete the Windows user
+Check that the following file exists:
 
-Run Command Prompt as Administrator:
-
-```bat
-net user ClaudeAlt /delete
+```text
+C:\Tools\Claude2\claude.exe
 ```
 
-### Delete the copied application
+If it does not exist, run the PowerShell copy command again as Administrator:
 
 ```powershell
-Remove-Item C:\Tools\Claude2 -Recurse -Force
+$p = Get-AppxPackage Claude; robocopy "$($p.InstallLocation)\app" "C:\Tools\Claude2" /E
 ```
-
-### Remove saved credentials
-
-If you used `/savecred`, remove the stored credentials from **Windows Credential Manager**.
 
 ---
 
-## Disclaimer
+## The copy command doesn't work
 
-This project is an **unofficial community workaround**.
+Run:
 
-It is not affiliated with, maintained by, or endorsed by Anthropic.
+```powershell
+Get-AppxPackage Claude
+```
+
+If Claude Desktop is installed correctly, PowerShell should return information about the Claude package.
+
+If nothing is returned, the package name or installation method may be different on your system.
+
+---
+
+## Claude doesn't start with the second account
+
+Make sure:
+
+* `UserClaude` exists.
+* You have signed in to `UserClaude` at least once.
+* Claude Desktop is completely closed before copying the files.
+* `C:\Tools\Claude2\claude.exe` exists.
+* The password used with `runas` is correct.
+
+---
+
+# Limitations
+
+This is an **unofficial workaround**, not an official Claude Desktop feature.
+
+It may stop working or require changes if:
+
+* Claude Desktop changes its Windows packaging.
+* Anthropic changes the MSIX application structure.
+* The authentication process changes.
+* Windows changes its application security or execution behavior.
+
+The method was tested with the Windows MSIX version of Claude Desktop.
+
+---
+
+# Disclaimer
+
+This project is not affiliated with or endorsed by Anthropic.
+
+Claude and Claude Desktop are trademarks and products of Anthropic.
+
+This repository documents a personal workaround for running separate Claude Desktop accounts on Windows.
 
 Use it at your own risk.
 
-The behavior of Claude Desktop, Windows MSIX packaging, authentication, or account management may change at any time.
-
 ---
 
-## Project Structure
+# Repository Structure
 
 ```text
 claude-desktop-dual-windows/
 │
 ├── README.md
 ├── Claude2.bat
-├── LICENSE
-└── screenshots/
-    └── two-claude-instances.png
+└── LICENSE
 ```
 
 ---
 
-## Contributing
+# Contributing
 
-If you discover a better way to run multiple Claude Desktop accounts on Windows, feel free to open an issue or submit a pull request.
+If you find a more reliable way to run multiple Claude Desktop accounts on Windows, feel free to open an issue or submit a pull request.
 
 Useful contributions include:
 
 * Compatibility fixes for newer Claude Desktop versions
-* Improvements to the synchronization script
-* Windows 10/11 compatibility fixes
-* Better documentation
-* Alternative approaches that do not require a second Windows user
+* Better Windows 10/11 support
+* Alternative approaches
+* Documentation improvements
+* Troubleshooting information
 
 ---
 
-## License
+# License
 
 This project is released under the MIT License.
 
